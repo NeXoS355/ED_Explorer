@@ -1,4 +1,4 @@
-EDExplorer helps you by exploring the Uniserve in Elite Dangerous more efficiently.
+EDExplorer helps you by exploring the Universe in Elite Dangerous more efficiently.
 
 - get the full System Overview after you detected all Planets
 - decide at a glance if it is worth mapping a planet with the DSS
