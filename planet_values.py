@@ -10,36 +10,34 @@ Stand: Januar 2026
 
 PLANET_BASE_VALUES = {
     # Hochwertige Welten
-    "Earthlike body": 1_200_000,
-    "Water world": 600_000,
-    "Ammonia world": 400_000,
+    "earthlike body": 1_200_000,
+    "water world": 600_000,
+    "ammonia world": 400_000,
 
     # Terraformierbare Welten
-    "Rocky body": 130_000,  # wenn terraformierbar
-    "High metal content body": 160_000,  # wenn terraformierbar
-    "Metal rich body": 140_000,  # wenn terraformierbar
+    "rocky body": 130_000,
+    "high metal content body": 160_000,
+    "metal rich body": 140_000,
 
     # Gas Giants
-    "Class I gas giant": 3_800,
-    "Class II gas giant": 28_000,
-    "Class III gas giant": 1_000,
-    "Class IV gas giant": 1_100,
-    "Class V gas giant": 1_000,
-    "Gas giant with water based life": 900_000,
-    "Gas giant with ammonia based life": 900_000,
-    "Helium rich gas giant": 900,
-    "Helium gas giant": 900,
-    "Water giant": 670,
+    "class i gas giant": 3_800,
+    "class ii gas giant": 28_000,
+    "class iii gas giant": 1_000,
+    "class iv gas giant": 1_100,
+    "class v gas giant": 1_000,
+    "gas giant with water based life": 900_000,
+    "gas giant with ammonia based life": 900_000,
+    "helium rich gas giant": 900,
+    "helium gas giant": 900,
+    "water giant": 670,
 
     # Eisige Körper
-    "Icy body": 500,
-
-    # Felsige Körper (nicht terraformierbar)
-    "Rocky ice body": 500,
+    "icy body": 500,
+    "rocky ice body": 500,
 
     # Metal-Körper
-    "Metal rich body": 31_000,
-    "High metal content body": 14_000,
+    "metal rich body": 31_000,
+    "high metal content body": 14_000,
 }
 
 # Basis-Werte für Sternklassen
@@ -117,37 +115,30 @@ def calculate_body_value(body_data, has_dss=False):
     Returns:
         int: Geschätzter Wert in Credits
     """
-    planet_type = body_data.get("type", "")
+    planet_type = body_data.get("type", "").lower().strip()
 
-    # Spezialfall: Asteroidencluster sind wertlos
-    if "Asteroid Cluster" in planet_type:
+    # Asteroiden
+    if "asteroid cluster" in planet_type:
         return 0
 
-    # Spezialfall: Sterne
-    if "Star Class" in planet_type:
-        # Extrahiere Sternklasse aus "Star Class X"
-        star_class = planet_type.replace("Star Class ", "").strip()
+    # Sterne
+    if planet_type.startswith("star class"):
+        star_class = planet_type.replace("star class", "").strip().upper()
         base_value = STAR_BASE_VALUES.get(star_class, DEFAULT_VALUE)
-        # Sterne können nicht gemappt werden, also kein DSS-Multiplikator
         return int(base_value)
 
-    # Basis-Wert ermitteln
-    base_value = PLANET_BASE_VALUES.get(planet_type, DEFAULT_VALUE)
-
-    # Spezialfall: Terraformierbare Welten
-    if "Terraformable" in planet_type:
-        # Extrahiere Original-Typ
-        original_type = planet_type.replace(" (Terraformable)", "").strip()
+    # Terraformierbar
+    if "terraformable" in planet_type:
+        original_type = planet_type.replace(" (terraformable)", "").strip()
         base_value = PLANET_BASE_VALUES.get(original_type, DEFAULT_VALUE)
         base_value *= TERRAFORMABLE_MULTIPLIER
+    else:
+        base_value = PLANET_BASE_VALUES.get(planet_type, DEFAULT_VALUE)
 
-    total_value = base_value
-
-    # DSS Mapping Bonus
     if has_dss:
-        total_value *= DSS_MULTIPLIER
+        base_value *= DSS_MULTIPLIER
 
-    return int(total_value)
+    return int(base_value)
 
 
 def calculate_system_value(bodies):

@@ -172,11 +172,16 @@ class ExplorerApp(App):
                 "geo_signals": counts["geo"], "human_signals": counts["human"],
                 "guardian_signals": counts["guardian"], "thargoid_signals": counts["thargoid"],
                 "other_signals": counts["other"], "distance": 0, "gravity": 0,
-                "landable": False, "materials": [], "scanned_fss": False,
+                "landable": False, "materials": [], "bio_details": bio_details if bio_details else [], "scanned_genomes": set(), "scanned_fss": False,
                 "scanned_dss": False, "value": 0, "icon": "◯", "style": None, "urgency": "normal"
             }
             if bio_details:
-                new_body["bio_details"] = bio_details
+                body.setdefault("bio_details", [])
+                body.setdefault("scanned_genomes", set())
+
+                for genome in bio_details:
+                    if genome not in body["bio_details"]:
+                        body["bio_details"].append(genome)
             self.state.add_body(new_body)
 
     def evaluate_planet(self, scan: dict) -> dict:
@@ -193,7 +198,7 @@ class ExplorerApp(App):
             "human_signals": 0, "guardian_signals": 0, "thargoid_signals": 0, "other_signals": 0,
             "distance": scan.get("DistanceFromArrivalLS", 0),
             "gravity": scan.get("SurfaceGravity", 0) / 9.81 if scan.get("SurfaceGravity") else 0,
-            "landable": scan.get("Landable", False), "materials": materials,
+            "landable": scan.get("Landable", False), "materials": materials, "bio_details": [], "scanned_genomes": set(),
             "scanned_fss": False, "scanned_dss": False, "value": 0, "icon": "◯",
             "style": None, "urgency": "normal"
         }
@@ -317,15 +322,33 @@ class ExplorationState:
     def add_body(self, body_data):
         if self.current_system is None:
             return
+
         for i, body in enumerate(self.current_system.bodies):
             if body["name"] == body_data["name"]:
-                for key in ["bio_signals", "geo_signals", "human_signals", "guardian_signals", "thargoid_signals", "other_signals", "scanned_fss", "scanned_dss"]:
-                    if body.get(key):
+
+                # 🔁 EXISTIERENDE DATEN ERHALTEN
+                for key in [
+                    "bio_signals", "geo_signals", "human_signals",
+                    "guardian_signals", "thargoid_signals", "other_signals",
+                    "scanned_fss", "scanned_dss",
+                    "bio_details", "scanned_genomes"
+                ]:
+                    if key in body and body[key]:
                         body_data[key] = body[key]
+
                 self.current_system.bodies[i] = body_data
-                self.current_system.bodies[i]["value"] = calculate_body_value(body_data, body_data.get("scanned_dss", False))
+                self.current_system.bodies[i]["value"] = calculate_body_value(
+                    body_data,
+                    body_data.get("scanned_dss", False)
+                )
                 self.current_system.total_value = calculate_system_value(self.current_system.bodies)
                 return
+
+        # Neuer Body
+        body_data.setdefault("bio_details", [])
+        body_data.setdefault("scanned_genomes", set())
+
         body_data["value"] = calculate_body_value(body_data, body_data.get("scanned_dss", False))
         self.current_system.bodies.append(body_data)
         self.current_system.total_value = calculate_system_value(self.current_system.bodies)
+

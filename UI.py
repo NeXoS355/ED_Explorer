@@ -1,6 +1,8 @@
 from datetime import datetime
 from textual.widgets import Header, Footer, Static, Tree, DataTable
 
+SCOOPABLE_STARS = {"O", "B", "A", "F", "G", "K", "M"}
+
 # =============================================================
 # WIDGETS
 # =============================================================
@@ -139,7 +141,7 @@ class BodiesTable(DataTable):
         self.add_column("Body")
         self.add_column("Type")
         self.add_column("Scan", width=6)
-        self.add_column("Signals", width=18)
+        self.add_column("Signals")
         self.add_column("G", width=5)
         self.add_column("L", width=3)
         self.add_column("Value", width=12)
@@ -167,12 +169,36 @@ class BodiesTable(DataTable):
             scan = ("F" if body.get("scanned_fss") else "-") + "/" + ("D" if body.get("scanned_dss") else "-")
 
             signals = []
-            for emoji, key in [("🧬", "bio_signals"), ("🌋", "geo_signals"), ("👤", "human_signals"),
-                               ("🛡️", "guardian_signals"), ("👽", "thargoid_signals"), ("❓", "other_signals")]:
+
+            # Normale Signal-Zählung
+            for emoji, key in [
+                ("🧬", "bio_signals"),
+                ("🌋", "geo_signals"),
+                ("👤", "human_signals"),
+                ("🛡️", "guardian_signals"),
+                ("👽", "thargoid_signals"),
+                ("❓", "other_signals")
+            ]:
                 count = body.get(key, 0)
                 if count > 0:
                     signals.append(f"{emoji}{count}")
+
+            # 🧬 Genom-Details (farbig nach Scan-Status)
+            if body.get("bio_details"):
+                scanned = set(body.get("scanned_genomes", []))
+                genome_parts = []
+
+                for genome in body["bio_details"]:
+                    if genome in scanned:
+                        genome_parts.append(f"[green]{genome}[/green]")
+                    else:
+                        genome_parts.append(genome)
+
+                genomes = ", ".join(genome_parts)
+                signals.append(f"🧬[{genomes}]")
+
             signals_str = " ".join(signals) if signals else "—"
+
 
             gravity = body.get("gravity", 0)
             gravity_str = f"{gravity:.2f}" if gravity > 0 else "—"

@@ -61,6 +61,7 @@ class ExplorationCache:
                     "value_formatted": format_credits(body_value),
                     "bio_signals": body.get("bio_signals", 0),
                     "geo_signals": body.get("geo_signals", 0),
+                    "scanned_genomes": list(body["scanned_genomes"]),
                     "landable": body.get("landable", False),
                     "scanned_dss": body.get("scanned_dss", False),
                     "terraformable": "Terraformable" in body.get("type", "")
