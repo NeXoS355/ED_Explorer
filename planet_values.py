@@ -11,13 +11,8 @@ Stand: Januar 2026
 PLANET_BASE_VALUES = {
     # Hochwertige Welten
     "earthlike body": 1_200_000,
-    "water world": 600_000,
-    "ammonia world": 400_000,
-
-    # Terraformierbare Welten
-    "rocky body": 130_000,
-    "high metal content body": 160_000,
-    "metal rich body": 140_000,
+    "water world": 100_000,
+    "ammonia world": 140_000,
 
     # Gas Giants
     "class i gas giant": 3_800,
@@ -25,19 +20,25 @@ PLANET_BASE_VALUES = {
     "class iii gas giant": 1_000,
     "class iv gas giant": 1_100,
     "class v gas giant": 1_000,
-    "gas giant with water based life": 900_000,
-    "gas giant with ammonia based life": 900_000,
+    "gas giant with water based life": 880,
+    "gas giant with ammonia based life": 780,
     "helium rich gas giant": 900,
     "helium gas giant": 900,
     "water giant": 670,
 
-    # Eisige Körper
     "icy body": 500,
     "rocky ice body": 500,
+    "rocky body": 500,
 
     # Metal-Körper
     "metal rich body": 31_000,
     "high metal content body": 14_000,
+}
+
+TERRAFORMABLE_VALUES = {
+    "water world": 270_000,
+    "high metal content body": 165_000,
+    "rocky body": 130_000,
 }
 
 # Basis-Werte für Sternklassen
@@ -94,9 +95,6 @@ DEFAULT_VALUE = 500
 # MULTIPLIKATOREN
 # =============================================================
 
-# Terraformierbar
-TERRAFORMABLE_MULTIPLIER = 10.0
-
 # Detailed Surface Scanner (DSS) - Mapping Bonus
 DSS_MULTIPLIER = 5.0
 
@@ -107,15 +105,11 @@ DSS_MULTIPLIER = 5.0
 def calculate_body_value(body_data, has_dss=False):
     """
     Berechnet den geschätzten Kartendaten-Wert eines Körpers
-
-    Args:
-        body_data: Dictionary mit Körper-Informationen
-        has_dss: Ob DSS verwendet wurde
-
-    Returns:
-        int: Geschätzter Wert in Credits
     """
+
     planet_type = body_data.get("type", "").lower().strip()
+    terraform_state = body_data.get("terraform_state", "")
+    is_terraformable = terraform_state == "Terraformable"
 
     # Asteroiden
     if "asteroid cluster" in planet_type:
@@ -127,18 +121,21 @@ def calculate_body_value(body_data, has_dss=False):
         base_value = STAR_BASE_VALUES.get(star_class, DEFAULT_VALUE)
         return int(base_value)
 
-    # Terraformierbar
-    if "terraformable" in planet_type:
-        original_type = planet_type.replace(" (terraformable)", "").strip()
-        base_value = PLANET_BASE_VALUES.get(original_type, DEFAULT_VALUE)
-        base_value *= TERRAFORMABLE_MULTIPLIER
-    else:
-        base_value = PLANET_BASE_VALUES.get(planet_type, DEFAULT_VALUE)
+    # 🌍 Planeten-Basiswert (OHNE Terraformable im String)
+    clean_type = planet_type.replace(" (terraformable)", "").strip()
 
+    # 🌱 Terraformierbarkeit NUR über TerraformState
+    if is_terraformable:
+        base_value = TERRAFORMABLE_VALUES.get(clean_type, DEFAULT_VALUE)
+    else:
+        base_value = PLANET_BASE_VALUES.get(clean_type, DEFAULT_VALUE)
+
+    # 🛰 DSS-Multiplikator
     if has_dss:
         base_value *= DSS_MULTIPLIER
 
     return int(base_value)
+
 
 
 def calculate_system_value(bodies):

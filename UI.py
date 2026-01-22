@@ -1,5 +1,6 @@
 from datetime import datetime
-from textual.widgets import Header, Footer, Static, Tree, DataTable
+from textual.widgets import Header, Footer, Static, Tree
+from rich.text import Text
 
 SCOOPABLE_STARS = {"O", "B", "A", "F", "G", "K", "M"}
 
@@ -8,7 +9,7 @@ SCOOPABLE_STARS = {"O", "B", "A", "F", "G", "K", "M"}
 # =============================================================
 
 class SystemHeader(Static):
-    def __init__(self, state: ExplorationState):
+    def __init__(self, state):
         super().__init__()
         self.state = state
 
@@ -48,167 +49,282 @@ class SystemHeader(Static):
 
         return "\n".join(lines)
 
-class SystemsTree(Tree):
-    def __init__(self, state: ExplorationState):
-        super().__init__("Besuchte Systeme")
+
+class UnifiedSystemsTree(Tree):
+    """Vereinheitlichter Tree mit allen Systemen und Details"""
+
+    def __init__(self, state):
+        super().__init__("Exploration Overview")
         self.state = state
         self.root.expand()
 
     def update_systems(self):
         self.clear()
         total = len(self.state.systems) + (1 if self.state.current_system else 0)
-        self.root.label = f"Besuchte Systeme ({total})"
+        self.root.label = f"🌌 Exploration Overview ({total} Systeme)"
 
+        # Aktuelles System
         if self.state.current_system:
             self._add_system(self.state.current_system, True)
+
+        # Alte Systeme
         for system in self.state.systems:
             self._add_system(system, False)
 
-    def _add_system(self, system: SystemData, is_current: bool):
+    def _calculate_priority(self, body):
+        """Berechnet Prioritätsscore für Sortierung"""
+        priority = 0
+
+        # 1. Wert (höchste Priorität)
+        priority += body.get("value", 0) * 0.1
+
+        # 2. Planetentyp
+        if "Earthlike" in body["type"]:
+            priority += 1_000_000
+        elif "Water" in body["type"] and "Terraformable" in body["type"]:
+            priority += 900_000
+        elif "Water" in body["type"]:
+            priority += 800_000
+        elif "Ammonia" in body["type"]:
+            priority += 700_000
+        elif "Terraformable" in body["type"]:
+            priority += 600_000
+
+        # 3. Signale (nach Typ gewichtet)
+        priority += body.get("bio_signals", 0) * 50_000
+        priority += body.get("guardian_signals", 0) * 40_000
+        priority += body.get("thargoid_signals", 0) * 30_000
+        priority += body.get("human_signals", 0) * 20_000
+        priority += body.get("geo_signals", 0) * 5_000
+
+        return priority
+
+    def _add_system(self, system, is_current: bool):
+        """Fügt ein System mit allen Details zum Tree hinzu"""
+        # System-Header
         dss = " 💾" if system.dss_used else ""
-        current = " [AKTUELL]" if is_current else ""
-        label = f"{system.name} ({len(system.bodies)}){dss}{current} - {system.total_value:,} cr"
-        node = self.root.add(label, expand=is_current)
+        current = " 🎯" if is_current else ""
+
+        system_label = Text()
+        system_label.append(f"{system.name}", style="bold cyan" if is_current else "cyan")
+        system_label.append(f" ({len(system.bodies)} Bodies)", style="dim")
+        system_label.append(dss, style="green")
+        system_label.append(current, style="yellow")
+        system_label.append(f" — {system.total_value:,} cr", style="bold yellow")
+
+        system_node = self.root.add(system_label, expand=is_current)
 
         if len(system.bodies) == 0:
-            node.add_leaf("Keine Körper")
+            system_node.add_leaf("Keine Körper gescannt")
             return
 
-        sorted_bodies = sorted(system.bodies, key=lambda b: (
-            1000 if "Earthlike" in b["type"] else
-            900 if "Water" in b["type"] else
-            800 if "Ammonia" in b["type"] else
-            700 if "Terraformable" in b["type"] else 0
-        ) + b.get("bio_signals", 0) * 100, reverse=True)
+        # Bodies nach Priorität sortieren
+        sorted_bodies = sorted(system.bodies, key=self._calculate_priority, reverse=True)
 
+        # Bodies hinzufügen
         for body in sorted_bodies:
-            icon = body.get("icon", "◯")
-            name = body["name"]
-            body_type = body["type"]
-            value = body.get("value", 0)
+            self._add_body_to_tree(system_node, body)
 
-            scanned = ""
-            if body.get("scanned_fss"):
-                scanned += "F"
-            if body.get("scanned_dss"):
-                scanned += "D"
-            scan_str = f"[{scanned}]" if scanned else ""
+    def _add_body_to_tree(self, parent_node, body):
+        """Fügt einen Körper mit kompakten Infos hinzu"""
+        icon = body.get("icon", "◯")
+        name = body["name"]
+        body_type = body["type"]
+        value = body.get("value", 0)
 
-            label = f"{icon} {name} {scan_str} - {body_type} - {value:,} cr"
-            body_node = node.add(label, expand=False)
+        # Scan Status
+        scan_fss = body.get("scanned_fss", False)
+        scan_dss = body.get("scanned_dss", False)
+        scan_badges = []
+        if scan_fss:
+            scan_badges.append("[cyan]FSS[/cyan]")
+        if scan_dss:
+            scan_badges.append("[green]DSS[/green]")
+        scan_str = " ".join(scan_badges) if scan_badges else "[dim]Unscanned[/dim]"
 
-            for sig_type, emoji, key in [
-                ("Biological", "🧬", "bio_signals"),
-                ("Geological", "🌋", "geo_signals"),
-                ("Human", "👤", "human_signals"),
-                ("Guardian", "🛡️", "guardian_signals"),
-                ("Thargoid", "👽", "thargoid_signals"),
-                ("Other", "❓", "other_signals")
-            ]:
-                count = body.get(key, 0)
-                if count > 0:
-                    signal_label = f"{emoji} {sig_type} Signals: {count}"
-                    signal_node = body_node.add_leaf(signal_label)
+        # Hauptzeile: Icon Name [Scans] | Type | Value
+        body_label = Text()
+        body_label.append(f"{icon} ", style="white")
+        body_label.append(f"{name}", style="bold white")
 
-                    # Bei Bio-Signalen: Genus-Details anzeigen
-                    if key == "bio_signals" and body.get("bio_details"):
-                        for genus in body.get("bio_details", []):
-                            body_node.add_leaf(f"  └─ {genus}")
+        # Signale kompakt
+        signals = []
+        bio = body.get("bio_signals", 0)
+        geo = body.get("geo_signals", 0)
+        human = body.get("human_signals", 0)
+        guardian = body.get("guardian_signals", 0)
+        thargoid = body.get("thargoid_signals", 0)
+        other = body.get("other_signals", 0)
 
-            distance = body.get("distance", 0)
-            if distance > 0:
-                body_node.add_leaf(f"📍 Distance: {distance:,.0f} Ls")
+        if bio > 0:
+            signals.append(f"🧬 {bio}")
+        if geo > 0:
+            signals.append(f"🌋 {geo}")
+        if human > 0:
+            signals.append(f"👤 {human}")
+        if guardian > 0:
+            signals.append(f"🛡️ {guardian}")
+        if thargoid > 0:
+            signals.append(f"👽 {thargoid}")
+        if other > 0:
+            signals.append(f"❓ {other}")
 
-            gravity = body.get("gravity", 0)
-            if gravity > 0:
-                body_node.add_leaf(f"⚖️ Gravity: {gravity:.2f}g")
+        if signals:
+            body_label.append(f" | {' '.join(signals)}")
 
-            if body.get("landable"):
-                body_node.add_leaf("✓ Landable")
+        # Scan-Badges
+        if scan_fss:
+            body_label.append(" [FSS]", style="cyan")
+        if scan_dss:
+            body_label.append(" [DSS]", style="green")
 
-            materials = body.get("materials", [])
-            if materials:
-                sorted_mats = sorted(materials, key=lambda x: x["percent"], reverse=True)[:5]
-                mat_node = body_node.add("📦 Materials")
-                for mat in sorted_mats:
-                    mat_node.add_leaf(f"  {mat['name']}: {mat['percent']:.1f}%")
+        # Type und Value
+        body_label.append(f" │ {body_type}", style="magenta")
+        if value > 0:
+            body_label.append(f" │ {value:,} cr", style="yellow")
 
-class BodiesTable(DataTable):
-    def __init__(self, state: ExplorationState):
-        super().__init__()
+        body_node = parent_node.add(body_label, expand=False)
+
+        # Details-Sektion
+        details_added = False
+
+        # 📊 Zusammenfassung (Signals, Distance, Gravity, Landable)
+        summary_parts = []
+
+        if signals:
+            summary_parts.append(f"Signals: {' '.join(signals)}")
+
+        # Distance
+        distance = body.get("distance", 0)
+        if distance > 0:
+            summary_parts.append(f"📍 {distance:,.0f} Ls")
+
+        # Gravity
+        gravity = body.get("gravity", 0)
+        if gravity > 0:
+            grav_color = "red" if gravity > 2.0 else "yellow" if gravity > 1.5 else "green"
+            summary_parts.append(f"⚖️ {gravity:.2f}g")
+
+        # Landable
+        if body.get("landable"):
+            summary_parts.append("✅ Landable")
+
+        # Zusammenfassung als eine Zeile
+        if summary_parts:
+            summary_text = Text(" │ ".join(summary_parts))
+            body_node.add_leaf(summary_text)
+            details_added = True
+
+        # 🧬 Bio-Details (Genuses)
+        if body.get("bio_details"):
+            bio_node = body_node.add("🧬 Biological Signals")
+            scanned = set(body.get("scanned_genomes", []))
+
+            for genus in body.get("bio_details", []):
+                if genus in scanned:
+                    bio_node.add_leaf(Text(f"✓ {genus}", style="green"))
+                else:
+                    bio_node.add_leaf(Text(f"○ {genus}", style="white"))
+            details_added = True
+
+        # 📦 Materials (Top 5)
+        materials = body.get("materials", [])
+        if materials:
+            sorted_mats = sorted(materials, key=lambda x: x["percent"], reverse=True)[:5]
+            mat_text = ", ".join([f"{m['name']} ({m['percent']:.1f}%)" for m in sorted_mats])
+            body_node.add_leaf(f"📦 {mat_text}")
+            details_added = True
+
+        # Fallback wenn keine Details
+        if not details_added:
+            body_node.add_leaf(Text("No additional data", style="dim"))
+
+
+class CompactSystemsTree(Tree):
+    """Ultra-kompakte Variante - nur wichtigste Infos"""
+
+    def __init__(self, state):
+        super().__init__("Systems")
         self.state = state
-        self.cursor_type = "row"
-        self.add_column("Body")
-        self.add_column("Type")
-        self.add_column("Scan", width=6)
-        self.add_column("Signals")
-        self.add_column("G", width=5)
-        self.add_column("L", width=3)
-        self.add_column("Value", width=12)
-        self.add_column("Distance", width=10)
+        self.root.expand()
 
-    def update_bodies(self):
+    def update_systems(self):
         self.clear()
+        total = len(self.state.systems) + (1 if self.state.current_system else 0)
+        self.root.label = f"🌌 Systems ({total})"
 
-        if self.state.current_system is None or len(self.state.current_system.bodies) == 0:
-            self.add_row("—", "Keine Körper gescannt", "—", "—", "—", "—", "—", "—")
+        if self.state.current_system:
+            self._add_compact_system(self.state.current_system, True)
+
+        for system in self.state.systems:
+            self._add_compact_system(system, False)
+
+    def _add_compact_system(self, system, is_current):
+        """Fügt System mit inline Body-Infos hinzu"""
+        dss = "💾" if system.dss_used else ""
+        current = "🎯" if is_current else ""
+
+        # System-Zeile
+        sys_text = Text()
+        if is_current:
+            sys_text.append("► ", style="bold yellow")
+        sys_text.append(f"{system.name}", style="bold cyan" if is_current else "cyan")
+        sys_text.append(f" {dss}{current}", style="green")
+        sys_text.append(f" │ {len(system.bodies)} bodies", style="dim")
+        sys_text.append(f" │ {system.total_value:,} cr", style="yellow")
+
+        system_node = self.root.add(sys_text, expand=is_current)
+
+        if len(system.bodies) == 0:
             return
 
-        sorted_bodies = sorted(self.state.current_system.bodies, key=lambda b: (
-            1000 if "Earthlike" in b["type"] else
-            900 if "Water" in b["type"] else
-            800 if "Ammonia" in b["type"] else
-            700 if "Terraformable" in b["type"] else 0
-        ) + b.get("bio_signals", 0) * 100, reverse=True)
+        # Sortiere Bodies
+        sorted_bodies = sorted(system.bodies, key=lambda b: (
+            b.get("value", 0) +
+            b.get("bio_signals", 0) * 50000 +
+            (1000000 if "Earthlike" in b["type"] else 0)
+        ), reverse=True)
 
-        for body in sorted_bodies:
-            name = body["name"]
-            icon = body.get("icon", "◯")
-            type_str = f"{icon} {body['type']}"
+        # Zeige nur Top 20 oder alle wenn weniger
+        display_count = min(20, len(sorted_bodies))
 
-            scan = ("F" if body.get("scanned_fss") else "-") + "/" + ("D" if body.get("scanned_dss") else "-")
+        for body in sorted_bodies[:display_count]:
+            self._add_compact_body(system_node, body)
 
-            signals = []
+        # "Show more" wenn es mehr gibt
+        if len(sorted_bodies) > display_count:
+            remaining = len(sorted_bodies) - display_count
+            system_node.add_leaf(Text(f"... and {remaining} more bodies", style="dim italic"))
 
-            # Normale Signal-Zählung
-            for emoji, key in [
-                ("🧬", "bio_signals"),
-                ("🌋", "geo_signals"),
-                ("👤", "human_signals"),
-                ("🛡️", "guardian_signals"),
-                ("👽", "thargoid_signals"),
-                ("❓", "other_signals")
-            ]:
-                count = body.get(key, 0)
-                if count > 0:
-                    signals.append(f"{emoji}{count}")
+    def _add_compact_body(self, parent, body):
+        """Kompakte Body-Zeile: Icon Name [Scans] Signals Value"""
+        icon = body.get("icon", "◯")
+        name = body["name"].split()[-1]  # Nur letzter Teil (z.B. "A 1" statt "System A 1")
 
-            # 🧬 Genom-Details (farbig nach Scan-Status)
-            if body.get("bio_details"):
-                scanned = set(body.get("scanned_genomes", []))
-                genome_parts = []
+        line = Text()
+        line.append(f"{icon} {name} ", style="white")
 
-                for genome in body["bio_details"]:
-                    if genome in scanned:
-                        genome_parts.append(f"[green]{genome}[/green]")
-                    else:
-                        genome_parts.append(genome)
+        # Scans
+        if body.get("scanned_dss"):
+            line.append("[DSS] ", style="green")
+        elif body.get("scanned_fss"):
+            line.append("[FSS] ", style="cyan")
 
-                genomes = ", ".join(genome_parts)
-                signals.append(f"🧬[{genomes}]")
+        # Signale (nur Icons mit Zahlen)
+        signals = []
+        for emoji, key in [("🧬", "bio_signals"), ("🌋", "geo_signals"),
+                           ("👤", "human_signals"), ("🛡️", "guardian_signals"),
+                           ("👽", "thargoid_signals")]:
+            count = body.get(key, 0)
+            if count > 0:
+                signals.append(f"{emoji}{count}")
 
-            signals_str = " ".join(signals) if signals else "—"
+        if signals:
+            line.append(" ".join(signals) + " ", style="white")
 
+        # Value
+        value = body.get("value", 0)
+        if value > 0:
+            line.append(f"│ {value:,} cr", style="yellow")
 
-            gravity = body.get("gravity", 0)
-            gravity_str = f"{gravity:.2f}" if gravity > 0 else "—"
-
-            landable_str = "✓" if body.get("landable") else "✗"
-
-            value = body.get("value", 0)
-            value_str = f"{value:,} cr" if value > 0 else "—"
-
-            distance = body.get("distance", 0)
-            distance_str = f"{distance:,.0f} Ls" if distance > 0 else "—"
-
-            self.add_row(name, type_str, scan, signals_str, gravity_str, landable_str, value_str, distance_str)
+        parent.add_leaf(line)
